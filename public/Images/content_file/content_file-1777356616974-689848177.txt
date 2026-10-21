@@ -1,0 +1,87 @@
+import numpy as np
+import pandas as pd
+
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+df = pd.read_csv("NVIDIA_STOCK.csv")
+
+df = df.dropna()
+
+# Optional but recommended
+df["Date"] = pd.to_datetime(df["Date"])
+df = df.sort_values("Date")
+
+df["Target"] = df["Close"].shift(-1)
+df = df.dropna()
+
+X = df.drop(columns=["Target", "Date"])
+y = df["Target"]
+
+configs = [
+    {"test_size": 0.3, "random_state": 1},
+    {"test_size": 0.4, "random_state": 1},
+    {"test_size": 0.3, "random_state": 50},
+    {"test_size": 0.4, "random_state": 50}
+]
+
+results = []
+all_predictions = []
+
+def mean_percentage_error(y_true, y_pred):
+    return np.mean((y_true - y_pred) / y_true) * 100
+
+for config in configs:
+    test_size = config["test_size"]
+    rs = config["random_state"]
+
+    split_index = int(len(df) * (1 - test_size))
+
+    X_train = X.iloc[:split_index]
+    X_test = X.iloc[split_index:]
+
+    y_train = y.iloc[:split_index]
+    y_test = y.iloc[split_index:]
+
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test, y_pred)
+    mpe = mean_percentage_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+
+    results.append({
+        "Test Size": test_size,
+        "Random State": rs,
+        "MSE": mse,
+        "RMSE": rmse,
+        "MAE": mae,
+        "MPE (%)": mpe,
+        "R² Score": r2
+    })
+
+    temp = pd.DataFrame({
+        "Actual": y_test.values,
+        "Predicted": y_pred
+    })
+
+    temp["Test Size"] = test_size
+    temp["Random State"] = rs
+
+    all_predictions.append(temp)
+
+results_df = pd.DataFrame(results)
+predictions_df = pd.concat(all_predictions, ignore_index=True)
+
+output_file = "NVIDIA_Stock_Report.xlsx"
+
+with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+    df.to_excel(writer, sheet_name="Original_Data", index=False)
+    results_df.to_excel(writer, sheet_name="Metrics_Summary", index=False)
+    predictions_df.to_excel(writer, sheet_name="Predictions", index=False)
+
+print("Report Ready:", output_file)

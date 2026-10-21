@@ -1,0 +1,65 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+
+# Load dataset
+df = pd.read_csv("data.csv")
+
+# Select only numeric columns
+X = df.select_dtypes(include=['int64', 'float64'])
+
+# Handle missing values
+X = X.dropna()
+
+# Scale data
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+k_values = [2, 3, 4, 5, 6, 7]
+
+sse = []
+cluster_outputs = []
+
+for k in k_values:
+    model = KMeans(n_clusters=k, random_state=1, n_init=10)
+    model.fit(X_scaled)
+
+    sse.append(model.inertia_)
+
+    temp = df.loc[X.index].copy()
+    temp["Cluster"] = model.labels_
+    temp["K Value"] = k
+
+    cluster_outputs.append(temp)
+
+# 🎯 Choose best K manually (example: 3)
+best_k = 3
+
+final_model = KMeans(n_clusters=best_k, random_state=1, n_init=10)
+labels = final_model.fit_predict(X_scaled)
+
+# 🎯 2D Visualization (first two numeric columns)
+col1, col2 = X.columns[:2]
+
+plt.figure()
+plt.scatter(X[col1], X[col2], c=labels)
+plt.xlabel(col1)
+plt.ylabel(col2)
+plt.title(f"KMeans Clustering (K={best_k})")
+plt.show()
+
+# Save Excel
+results_df = pd.DataFrame({"K": k_values, "SSE": sse})
+
+cluster_df = df.loc[X.index].copy()
+cluster_df["Cluster"] = labels
+
+output_file = "KMeans_Report.xlsx"
+
+with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+    df.to_excel(writer, sheet_name="Original_Data", index=False)
+    results_df.to_excel(writer, sheet_name="Elbow_Data", index=False)
+    cluster_df.to_excel(writer, sheet_name="Final_Clusters", index=False)
+
+print("Report Ready:", output_file)
