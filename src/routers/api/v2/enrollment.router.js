@@ -1,16 +1,19 @@
-const express = require('express');
-const { enrollmentController } = require('../../../controller');
-const routers = express.Router()
 
+const express = require("express");
+const { enrollmentController } = require("../../../controller");
 
-routers.get("/allenrollment", enrollmentController.getAllEnroll)
+const routers = express.Router();
 
-routers.get("/enrollment/:id", enrollmentController.getEnroll)
+routers.get("/allenrollment", enrollmentController.getAllEnroll);
 
-routers.post("/addenrollment", enrollmentController.addEnroll)
+routers.get("/enrollment/:id", enrollmentController.getEnroll);
 
-routers.put("/updateenrollment/:id", enrollmentController.updateEnroll)
+routers.get("/user/:user_id", enrollmentController.getUserEnrollments);
 
-routers.delete("/deleteenrollment/:id", enrollmentController.deleteEnroll)
+routers.post("/addenrollment", enrollmentController.addEnroll);
+
+routers.put("/updateenrollment/:id", enrollmentController.updateEnroll);
+
+routers.delete("/deleteenrollment/:id", enrollmentController.deleteEnroll);
 
 module.exports = routers;

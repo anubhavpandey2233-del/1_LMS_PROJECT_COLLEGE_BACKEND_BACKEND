@@ -24,6 +24,9 @@ const tag = require("./tag.router")
 const like = require("./like.router")
 const comment = require("./blogComment.router")
 
+const dashboard = require("./dashboard.router");
+routers1.use("/dashboard", dashboard);
+
 routers1.use("/category", category);
 routers1.use("/user", user);
 routers1.use("/review", review);

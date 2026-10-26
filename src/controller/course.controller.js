@@ -1,20 +1,25 @@
-const fs = require('fs');
+
 const Coruse = require("../model/coruse.model");
-const { uploadcloudinary, deletecloudinary } = require('../servicer/cloudinary');
+const {
+    uploadcloudinary,
+    deletecloudinary
+} = require("../servicer/cloudinary");
+const mongoose = require("mongoose");
+const Review = require("../model/review.model");
+const Enroll = require("../model/enrollment.model");
+
 
 const addCouser = async (req, res) => {
     // #swagger.tags = ['course']
     try {
-        // console.log("cat data", req.body);
-        // console.log("filesss", req.files);
-
-        const Files = req.files
-
-        let uploadedImages = [];
+        const Files = req.files || [];
+        const uploadedImages = [];
 
         for (const course_img of Files) {
-
-            const cloudinaryObj = await uploadcloudinary(course_img.path, 'Course')
+            const cloudinaryObj = await uploadcloudinary(
+                course_img.path,
+                "Course"
+            );
 
             uploadedImages.push({
                 public_id: cloudinaryObj.public_id,
@@ -22,31 +27,109 @@ const addCouser = async (req, res) => {
             });
         }
 
+        const coruse = await Coruse.create({
+            ...req.body,
+            course_img: uploadedImages
+        });
 
-        const coruse = await Coruse.create({ ...req.body, course_img: uploadedImages });
+        const populatedCourse = await Coruse.findById(coruse._id)
+            .populate("intrucotor_id", "name email pfp");
 
-        if (!coruse) {
-            return res.status(400).json({ sucess: false, data: null, Message: "Couser not added" })
-        }
-
-        return res.status(200).json({ sucess: true, data: coruse, Message: "Couser data Added sucessfully." })
+        return res.status(201).json({
+            sucess: true,
+            data: populatedCourse,
+            Message: "Course data added successfully."
+        });
     } catch (error) {
-        return res.status(500).json({ sucess: false, data: null, Message: "Internal Server Error :" + error })
+        console.error("Add course error:", error);
+        return res.status(500).json({
+            sucess: false,
+            data: null,
+            Message: "Internal Server Error: " + error.message
+        });
     }
-
-}
+};
 
 const getAllCouser = async (req, res) => {
     try {
-        const coruse = await Coruse.find();
+        const courses = await Coruse.find()
+            .populate("intrucotor_id", "name email pfp");
+
+        const coursesWithDetails = await Promise.all(
+            courses.map(async (course) => {
+                const [ratingData, totalStudents] = await Promise.all([
+                    Review.aggregate([
+                        {
+                            $match: {
+                                course: course._id
+                            }
+                        },
+                        {
+                            $group: {
+                                _id: "$course",
+                                averageRating: { $avg: "$rating" },
+                                totalRatings: { $sum: 1 }
+                            }
+                        }
+                    ]),
+                    Enroll.countDocuments({
+                        course_id: course._id,
+                        payment_status: "paid"
+                    })
+                ]);
+
+                const averageRating = ratingData[0]?.averageRating ?? 0;
+                const totalRatings = ratingData[0]?.totalRatings ?? 0;
+
+                console.log("Course:", course._id);
+                console.log("Rating data:", ratingData);
+                console.log("Students enrolled:", totalStudents);
+
+                return {
+                    ...course.toObject(),
+                    averageRating: Number(averageRating.toFixed(1)),
+                    totalRatings,
+                    totalStudents
+                };
+            })
+        );
+
+        return res.status(200).json({
+            sucess: true,
+            data: coursesWithDetails,
+            Message: "Course data fetched."
+        });
+    } catch (error) {
+        console.error("Get all courses error:", error);
+
+        return res.status(500).json({
+            sucess: false,
+            data: null,
+            Message: error.message
+        });
+    }
+};
+const getCouser = async (req, res) => {
+    // #swagger.tags = ['course']
+    try {
+        const coruse = await Coruse.findById(req.params.id)
+            .populate("intrucotor_id", "name email pfp");
+
+        if (!coruse) {
+            return res.status(404).json({
+                sucess: false,
+                data: null,
+                Message: "Course not found."
+            });
+        }
 
         return res.status(200).json({
             sucess: true,
             data: coruse,
-            Message: "Couser data feached."
+            Message: "Course data fetched."
         });
     } catch (error) {
-        console.error(error);
+        console.error("Get course error:", error);
         return res.status(500).json({
             sucess: false,
             data: null,
@@ -55,50 +138,40 @@ const getAllCouser = async (req, res) => {
     }
 };
 
-const getCouser = async (req, res) => {
-    // #swagger.tags = ['course']
-    try {
-        const coruse = await Coruse.findById(req.params.id);
-
-        if (!coruse) {
-            return res.status(400).json({ sucess: false, data: [], Message: "Couser data not fetched." })
-        }
-
-        return res.status(200).json({ sucess: true, data: coruse, Message: "Couser data fetched." })
-
-    } catch (error) {
-        return res.status(500).json({ sucess: false, data: null, Message: "Internal Server Error :" + error })
-    }
-
-}
-
 const updateCouser = async (req, res) => {
     // #swagger.tags = ['course']
     try {
         const courseData = await Coruse.findById(req.params.id);
 
-        console.log("All course", courseData);
+        if (!courseData) {
+            return res.status(404).json({
+                sucess: false,
+                data: null,
+                Message: "Course not found."
+            });
+        }
 
-        let uData = { ...req.body, course_img : courseData.course_img }
+        const uData = {
+            ...req.body,
+            course_img: courseData.course_img
+        };
 
+        const Files = req.files || [];
 
-         const Files = req.files
-         console.log(Files);
-         
-        if (req.files?.length > 0) {
-            // fs.unlink(courseData.course_img, (error) => {
-            //     console.log(error);
-            // })
+        if (Files.length > 0) {
+            for (const image of courseData.course_img || []) {
+                if (image.public_id) {
+                    await deletecloudinary(image.public_id);
+                }
+            }
 
-            // uData.course_img = req.file.path
-            
-            let uploadedImages = [];
+            const uploadedImages = [];
 
-            courseData.course_img.map((v) => deletecloudinary(v?.public_id))
-            
             for (const course_img of Files) {
-                
-                const cloudinaryObj = await uploadcloudinary(course_img.path, 'Course')
+                const cloudinaryObj = await uploadcloudinary(
+                    course_img.path,
+                    "Course"
+                );
 
                 uploadedImages.push({
                     public_id: cloudinaryObj.public_id,
@@ -106,79 +179,101 @@ const updateCouser = async (req, res) => {
                 });
             }
 
-
-            // const cloudinaryObj = await uploadcloudinary(req.file.path, 'Course')
-
-            uData.course_img = uploadedImages
+            uData.course_img = uploadedImages;
         }
-
-        console.log("uData", uData);
 
         const coruse = await Coruse.findByIdAndUpdate(
             req.params.id,
             uData,
-            { new: true, runValidators: true }
-        )
+            {
+                new: true,
+                runValidators: true
+            }
+        ).populate("intrucotor_id", "name email pfp");
 
-
-        if (!coruse) {
-            return res.status(400).json({ sucess: false, data: [], Message: "Couser data not updated." })
-        }
-
-        return res.status(200).json({ sucess: true, data: coruse, Message: "Couser data updated." })
+        return res.status(200).json({
+            sucess: true,
+            data: coruse,
+            Message: "Course data updated."
+        });
     } catch (error) {
-        return res.status(500).json({ sucess: false, data: null, Message: "Internal Server Error :" + error })
+        console.error("Update course error:", error);
+        return res.status(500).json({
+            sucess: false,
+            data: null,
+            Message: error.message
+        });
     }
-}
+};
 
 const deletCouser = async (req, res) => {
     // #swagger.tags = ['course']
     try {
         const coruse = await Coruse.findByIdAndDelete(req.params.id);
 
-        // fs.unlink(coruse.course_img, (error) => {
-        //     console.log(error);
-
-        // })
-        coruse?.course_img.map(async (v) =>  await deletecloudinary(v?.public_id))
-       
-
         if (!coruse) {
-            return res.status(400).json({ sucess: false, data: [], Message: "Couser data not deleted." })
+            return res.status(404).json({
+                sucess: false,
+                data: null,
+                Message: "Course not found."
+            });
         }
 
-        return res.status(200).json({ sucess: true, data: coruse, Message: "Couser data deleted." })
+        for (const image of coruse.course_img || []) {
+            if (image.public_id) {
+                await deletecloudinary(image.public_id);
+            }
+        }
+
+        return res.status(200).json({
+            sucess: true,
+            data: coruse,
+            Message: "Course data deleted."
+        });
     } catch (error) {
-        return res.status(500).json({ sucess: false, data: null, Message: "Internal Server Error :" + error })
+        console.error("Delete course error:", error);
+        return res.status(500).json({
+            sucess: false,
+            data: null,
+            Message: error.message
+        });
     }
-}
+};
 
 const updateCouserStauts = async (req, res) => {
     // #swagger.tags = ['course']
     try {
-
-        let uData = { ...req.body }
-
-        const courseData = await Coruse.findById(req.params.id);
-
-        console.log(uData);
-
         const coruse = await Coruse.findByIdAndUpdate(
             req.params.id,
-            uData,
-            { new: true, runValidators: true }
-        )
-
+            { ...req.body },
+            {
+                new: true,
+                runValidators: true
+            }
+        ).populate("intrucotor_id", "name email pfp");
 
         if (!coruse) {
-            return res.status(400).json({ sucess: false, data: [], Message: "Couser stauts not updated." })
+            return res.status(404).json({
+                sucess: false,
+                data: null,
+                Message: "Course status not updated."
+            });
         }
 
-        return res.status(200).json({ sucess: true, data: coruse, Message: "Couser stauts updated." })
+        return res.status(200).json({
+            sucess: true,
+            data: coruse,
+            Message: "Course status updated."
+        });
     } catch (error) {
-        return res.status(500).json({ sucess: false, data: null, Message: "Internal Server Error :" + error })
+        console.error("Update course status error:", error);
+        return res.status(500).json({
+            sucess: false,
+            data: null,
+            Message: error.message
+        });
     }
-}
+};
 
 module.exports = {
     addCouser,
@@ -187,4 +282,4 @@ module.exports = {
     updateCouser,
     deletCouser,
     updateCouserStauts
-}
+};
