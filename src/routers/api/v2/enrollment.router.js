@@ -1,6 +1,7 @@
 
 const express = require("express");
 const { enrollmentController } = require("../../../controller");
+const auth = require("../../../middleware/auth.middleware");
 
 const routers = express.Router();
 
@@ -9,6 +10,13 @@ routers.get("/allenrollment", enrollmentController.getAllEnroll);
 routers.get("/enrollment/:id", enrollmentController.getEnroll);
 
 routers.get("/user/:user_id", enrollmentController.getUserEnrollments);
+
+// INSTRUCTOR - My Students List
+routers.get(
+    "/instructor/students",
+    auth(["Instructor", "instructor"]),
+    enrollmentController.getInstructorStudents
+);
 
 routers.post("/addenrollment", enrollmentController.addEnroll);
 

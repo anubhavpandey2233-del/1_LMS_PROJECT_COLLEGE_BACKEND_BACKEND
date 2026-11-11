@@ -1,6 +1,7 @@
 
 const mongoose = require("mongoose");
 const Enroll = require("../model/enrollment.model");
+const Course = require("../model/coruse.model");
 
 const getEnroll = async (req, res) => {
     try {
@@ -124,8 +125,6 @@ const getUserEnrollments = async (req, res) => {
     try {
         const { user_id } = req.params;
 
-        console.log("User ID:", user_id);
-
         if (!mongoose.Types.ObjectId.isValid(user_id)) {
             return res.status(400).json({
                 success: false,
@@ -137,8 +136,6 @@ const getUserEnrollments = async (req, res) => {
             .populate("course_id")
             .sort({ createdAt: -1 });
 
-        console.log("Enrollments:", enrollments);
-
         return res.status(200).json({
             success: true,
             data: enrollments,
@@ -149,7 +146,114 @@ const getUserEnrollments = async (req, res) => {
 
         return res.status(500).json({
             success: false,
-            message: error.message,
+            message: "Internal Server Error",
+        });
+    }
+};
+
+// INSTRUCTOR STUDENTS
+const getInstructorStudents = async (req, res) => {
+    try {
+        const instructorId = req.user?._id;
+
+        if (!instructorId) {
+            return res.status(401).json({
+                success: false,
+                message: "Instructor authentication required",
+            });
+        }
+
+        const courses = await Course.find({
+            intrucotor_id: instructorId,
+        }).select("_id name");
+
+        const courseIds = courses.map(course => course._id);
+
+        if (!courseIds.length) {
+            return res.status(200).json({
+                success: true,
+                data: [],
+                message: "No students enrolled yet",
+            });
+        }
+
+        const enrollments = await Enroll.find({
+            course_id: { $in: courseIds },
+        })
+            .populate("user_id")
+            .populate("course_id", "name")
+            .sort({
+                enrollment_Date: -1,
+                createdAt: -1,
+            });
+
+        const studentsMap = new Map();
+
+        enrollments.forEach(enrollment => {
+            if (!enrollment.user_id || !enrollment.course_id) {
+                return;
+            }
+
+            const studentId = enrollment.user_id._id.toString();
+
+            if (!studentsMap.has(studentId)) {
+                studentsMap.set(studentId, {
+                    student: enrollment.user_id,
+                    courses: [],
+                    totalProgress: 0,
+                    enrollmentCount: 0,
+                    enrolledDate: enrollment.enrollment_Date,
+                });
+            }
+
+            const studentData = studentsMap.get(studentId);
+
+            studentData.courses.push({
+                enrollmentId: enrollment._id,
+                course: enrollment.course_id,
+                progress: Number(enrollment.progress) || 0,
+                enrolledDate: enrollment.enrollment_Date,
+            });
+
+            studentData.totalProgress +=
+                Number(enrollment.progress) || 0;
+
+            studentData.enrollmentCount += 1;
+
+            if (
+                enrollment.enrollment_Date &&
+                (
+                    !studentData.enrolledDate ||
+                    new Date(enrollment.enrollment_Date) >
+                    new Date(studentData.enrolledDate)
+                )
+            ) {
+                studentData.enrolledDate = enrollment.enrollment_Date;
+            }
+        });
+
+        const students = Array.from(studentsMap.values()).map(item => ({
+            student: item.student,
+            courses: item.courses,
+            totalCourses: item.enrollmentCount,
+            progress: Math.round(
+                item.totalProgress / item.enrollmentCount
+            ),
+            enrolledDate: item.enrolledDate,
+        }));
+
+        return res.status(200).json({
+            success: true,
+            data: students,
+            message: "Instructor students fetched successfully",
+        });
+
+    } catch (error) {
+        console.error("Get instructor students error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch instructor students",
         });
     }
 };
@@ -188,6 +292,7 @@ const updateEnroll = async (req, res) => {
         });
     } catch (error) {
         console.error("Update enrollment error:", error);
+
         return res.status(500).json({
             success: false,
             message: "Internal Server Error",
@@ -222,6 +327,7 @@ const deleteEnroll = async (req, res) => {
         });
     } catch (error) {
         console.error("Delete enrollment error:", error);
+
         return res.status(500).json({
             success: false,
             message: "Internal Server Error",
@@ -236,7 +342,9 @@ module.exports = {
     updateEnroll,
     deleteEnroll,
     getUserEnrollments,
+    getInstructorStudents,
 };
+
 
 
 
