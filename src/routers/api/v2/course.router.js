@@ -17,4 +17,3 @@ routers.delete("/deletecourse/:id", coursecontroller.deletCouser)
 routers.put("/updateCouserStauts/:id", coursecontroller.updateCouserStauts)
 
 module.exports = routers;
-

@@ -59,4 +59,4 @@ const coruseSchema = new mongoose.Schema(
 
 const Coruse = mongoose.model("coruse", coruseSchema)
 
-module.exports = Coruse;
+module.exports = Coruse;  

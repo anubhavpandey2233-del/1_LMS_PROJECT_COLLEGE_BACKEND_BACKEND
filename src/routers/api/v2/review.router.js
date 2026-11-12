@@ -1,16 +1,30 @@
-const express = require('express');
-const { reviewController } = require('../../../controller');
-const routers = express.Router()
 
+const express = require("express");
+const { reviewController } = require("../../../controller");
+const auth = require("../../../middleware/auth");
 
-routers.get("/allreview", reviewController.getAllreview)
+const routers = express.Router();
 
-routers.get("/review/:id", reviewController.getreview)
+routers.get("/allreview", reviewController.getAllreview);
 
-routers.post("/addreview", reviewController.addreview)
+routers.get("/review/:id", reviewController.getreview);
 
-routers.put("/updatereview/:id", reviewController.updatereview)
+routers.post(
+    "/addreview",
+    auth(["Student", "student", "user"]),
+    reviewController.addreview
+);
 
-routers.delete("/deletereview/:id", reviewController.deletreview)
+routers.put(
+    "/updatereview/:id",
+    auth(["Student", "student", "user"]),
+    reviewController.updatereview
+);
+
+routers.delete(
+    "/deletereview/:id",
+    auth(["Student", "student", "user"]),
+    reviewController.deletreview
+);
 
 module.exports = routers;

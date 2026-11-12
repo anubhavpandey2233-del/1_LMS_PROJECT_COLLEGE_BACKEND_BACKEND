@@ -1,20 +1,28 @@
-const { default: mongoose } = require("mongoose");
+
+const mongoose = require("mongoose");
 
 const reviewSchema = new mongoose.Schema(
     {
         course: {
-            type: mongoose.Types.ObjectId,
-            ref: 'course',
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "coruse",
+            required: true
         },
         user: {
-           type: mongoose.Types.ObjectId,
-            ref: 'users',
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "users",
+            required: true
         },
         rating: {
-            type: Number
+            type: Number,
+            required: true,
+            min: 1,
+            max: 5
         },
-        description:{
-            type:String
+        description: {
+            type: String,
+            trim: true,
+            required: true
         }
     },
     {
@@ -23,5 +31,6 @@ const reviewSchema = new mongoose.Schema(
     }
 );
 
-const Review = mongoose.model('review', reviewSchema);
-module.exports = Review  
+const Review = mongoose.model("review", reviewSchema);
+
+module.exports = Review;

@@ -436,6 +436,7 @@ const ResetPass = async (req, res) => {
   }
 }
 
+
 const editProfile = async (req, res) => {
   try {
     const userExites = await Users.findById(req.params.id);
@@ -447,21 +448,34 @@ const editProfile = async (req, res) => {
         Message: "User Not Found",
       });
     }
-    console.log("filesssss", req.file);
-    
-    const cloudinaryObj = await uploadcloudinary(req?.file?.path, 'PFP')
-    console.log("objjjjj", cloudinaryObj);
 
-    const data = {...req.body, pfp: {
-            public_id: cloudinaryObj.public_id,
-            url: cloudinaryObj.url
-        }}
+    const data = {
+      ...req.body,
+    };
+
+    // Upload profile image only when a new file is selected
+    if (req.file?.path) {
+      const cloudinaryObj = await uploadcloudinary(req.file.path, "PFP");
+
+      if (!cloudinaryObj?.public_id || !cloudinaryObj?.url) {
+        return res.status(500).json({
+          sucess: false,
+          data: null,
+          Message: "Profile image upload failed",
+        });
+      }
+
+      data.pfp = {
+        public_id: cloudinaryObj.public_id,
+        url: cloudinaryObj.url,
+      };
+    }
 
     const user = await Users.findByIdAndUpdate(
       req.params.id,
       data,
       { new: true, runValidators: true }
-    )
+    );
 
     return res.status(200).json({
       sucess: true,
@@ -470,6 +484,8 @@ const editProfile = async (req, res) => {
     });
 
   } catch (error) {
+    console.log("Edit Profile Error:", error);
+
     return res.status(500).json({
       sucess: false,
       data: null,
@@ -477,6 +493,7 @@ const editProfile = async (req, res) => {
     });
   }
 };
+
 
 const getUserCounts = async (req, res) => {
   try {
