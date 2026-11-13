@@ -62,6 +62,7 @@ const getAllEnroll = async (req, res) => {
     }
 };
 
+
 const addEnroll = async (req, res) => {
     try {
         const { course_id, user_id } = req.body;
@@ -75,6 +76,15 @@ const addEnroll = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: "Valid course_id and user_id are required",
+            });
+        }
+
+        const course = await Course.findById(course_id);
+
+        if (!course) {
+            return res.status(404).json({
+                success: false,
+                message: "Course not found",
             });
         }
 
@@ -95,6 +105,7 @@ const addEnroll = async (req, res) => {
         const enroll = await Enroll.create({
             course_id,
             user_id,
+            payment_status: "paid",
             enrollment_no: `ENR-${new mongoose.Types.ObjectId()}`,
         });
 

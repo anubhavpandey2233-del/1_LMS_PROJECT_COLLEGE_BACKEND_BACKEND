@@ -50,14 +50,33 @@ const addCouser = async (req, res) => {
     }
 };
 
+
+
 const getAllCouser = async (req, res) => {
     try {
         const courses = await Coruse.find()
             .populate("intrucotor_id", "name email pfp");
 
+        // Check all enrollment records and their payment status
+        const enrollmentDebug = await Enroll.aggregate([
+            {
+                $group: {
+                    _id: {
+                        course_id: "$course_id",
+                        payment_status: "$payment_status"
+                    },
+                    total: { $sum: 1 }
+                }
+            }
+        ]);
+
+        console.log("\n========== ENROLLMENT DEBUG ==========");
+        console.log(JSON.stringify(enrollmentDebug, null, 2));
+        console.log("======================================\n");
+
         const coursesWithDetails = await Promise.all(
             courses.map(async (course) => {
-                const [ratingData, totalStudents] = await Promise.all([
+                const [ratingData, enrolledStudents] = await Promise.all([
                     Review.aggregate([
                         {
                             $match: {
@@ -72,7 +91,7 @@ const getAllCouser = async (req, res) => {
                             }
                         }
                     ]),
-                    Enroll.countDocuments({
+                    Enroll.distinct("user_id", {
                         course_id: course._id,
                         payment_status: "paid"
                     })
@@ -80,10 +99,15 @@ const getAllCouser = async (req, res) => {
 
                 const averageRating = ratingData[0]?.averageRating ?? 0;
                 const totalRatings = ratingData[0]?.totalRatings ?? 0;
+                const totalStudents = enrolledStudents.length;
 
-                console.log("Course:", course._id);
-                console.log("Rating data:", ratingData);
-                console.log("Students enrolled:", totalStudents);
+                console.log("-----------------------------------");
+                console.log("Course Name:", course.name);
+                console.log("Course ID:", course._id);
+                console.log("Rating Data:", ratingData);
+                console.log("Enrolled Students:", enrolledStudents);
+                console.log("Total Students:", totalStudents);
+                console.log("-----------------------------------");
 
                 return {
                     ...course.toObject(),
@@ -109,6 +133,7 @@ const getAllCouser = async (req, res) => {
         });
     }
 };
+
 const getCouser = async (req, res) => {
     // #swagger.tags = ['course']
     try {

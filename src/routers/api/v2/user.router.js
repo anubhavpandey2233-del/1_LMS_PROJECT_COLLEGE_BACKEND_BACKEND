@@ -17,7 +17,9 @@ routers.get("/checkAuth", userscontroller.checkAuth)
 routers.post("/forgot", userscontroller.ForgotPass)
 routers.post("/reset", userscontroller.ResetPass)
 routers.put("/edit-profile/:id", upload.single('pfp'), userscontroller.editProfile);
+routers.delete("/delete-profile-image/:id", userscontroller.deleteProfileImage);
 routers.get("/counts", userscontroller.getUserCounts);
+routers.get("/teachers", userscontroller.getAllTeachers);
 
 routers.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] }));

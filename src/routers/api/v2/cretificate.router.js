@@ -2,8 +2,14 @@ const express = require('express');
 const { certificateController } = require('../../../controller');
 const routers = express.Router()
 
+const auth = require("../../../middleware/auth");
+routers.post("/genratecertificate", certificateController.generateCertificate);
 
-routers.post("/genratecertificate", certificateController.generateCertificate)
+routers.get(
+    "/my-certificates",
+   auth(["user"]),
+    certificateController.getMyCertificates
+);
 
 // routers.get("/cretificate", (req, res) => {
 //     res.status(200).json({Message : "cretificate data fechted"})

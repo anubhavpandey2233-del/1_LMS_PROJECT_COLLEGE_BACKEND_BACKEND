@@ -4,7 +4,7 @@ const sendMail = require("../servicer/nodemailer");
 const jwt = require("jsonwebtoken");
 const bodyParser = require("body-parser");
 const sendSMS = require("../servicer/twilio");
-const { uploadcloudinary } = require("../servicer/cloudinary");
+const { uploadcloudinary,deletecloudinary } = require("../servicer/cloudinary");
 
 const tokenGenrater = async (_id) => {
   // #swagger.tags = ['user']
@@ -514,6 +514,79 @@ const getUserCounts = async (req, res) => {
   }
 };
 
+
+const deleteProfileImage = async (req, res) => {
+  try {
+    const user = await Users.findById(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({
+        sucess: false,
+        data: null,
+        Message: "User Not Found",
+      });
+    }
+
+    if (!user.pfp || user.pfp.length === 0) {
+      return res.status(400).json({
+        sucess: false,
+        data: user,
+        Message: "Profile image not found",
+      });
+    }
+
+    const profileImage = user.pfp[0];
+
+    if (profileImage.public_id) {
+      await deletecloudinary(profileImage.public_id, "image");
+    }
+
+    user.pfp = [];
+
+    await user.save();
+
+    return res.status(200).json({
+      sucess: true,
+      data: user,
+      Message: "Profile image deleted successfully",
+    });
+
+  } catch (error) {
+    console.log("Delete Profile Image Error:", error);
+
+    return res.status(500).json({
+      sucess: false,
+      data: null,
+      Message: "Internal Server Error : " + error.message,
+    });
+  }
+};
+
+
+const getAllTeachers = async (req, res) => {
+  try {
+    const teachers = await Users.find({
+      role: "Instructor",
+      is_active: true
+    })
+      .select("name pfp about")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: teachers,
+      message: "Teachers fetched successfully"
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      data: [],
+      message: error.message
+    });
+  }
+};
+
+
 module.exports = {
   register,
   is_verify,
@@ -525,5 +598,7 @@ module.exports = {
   ForgotPass,
   ResetPass,
   editProfile,
-  getUserCounts
+  getUserCounts,
+  deleteProfileImage,
+  getAllTeachers
 };
