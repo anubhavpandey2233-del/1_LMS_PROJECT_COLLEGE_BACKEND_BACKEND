@@ -4,23 +4,50 @@ const Course = require("../model/coruse.model");
 const Enrollment = require("../model/enrollment.model");
 const Review = require("../model/review.model");
 
-// ADMIN DASHBOARD - All users, courses and enrollments
+// ADMIN DASHBOARD - All platform statistics
 exports.getDashboardStats = async (req, res) => {
   try {
-    const [totalActiveUsers, totalCourses, totalEnrollments] =
-      await Promise.all([
-        Users.countDocuments({
-          is_active: true,
-          role: { $nin: ["admin", "Admin"] }
-        }),
-        Course.countDocuments({ is_active: true }),
-        Enrollment.countDocuments()
-      ]);
+    const successfulStatuses = ["success", "paid", "completed"];
 
-    const totalRevenue = await Enrollment.aggregate([
+    const [
+      totalActiveUsers,
+      totalStudents,
+      totalTeachers,
+      totalCourses,
+      totalActiveCourses,
+      totalEnrollments
+    ] = await Promise.all([
+      Users.countDocuments({
+        is_active: true,
+        role: { $nin: ["admin", "Admin"] }
+      }),
+
+      Users.countDocuments({
+        is_active: true,
+        role: { $in: ["user", "User", "student", "Student"] }
+      }),
+
+      Users.countDocuments({
+        is_active: true,
+        role: { $in: ["Instructor", "instructor", "teacher", "Teacher"] }
+      }),
+
+      Course.countDocuments(),
+
+      Course.countDocuments({
+        is_active: true
+      }),
+
+      Enrollment.countDocuments({
+        payment_status: { $in: successfulStatuses }
+      })
+    ]);
+
+    // Total platform revenue
+    const revenueResult = await Enrollment.aggregate([
       {
         $match: {
-          payment_status: "success"
+          payment_status: { $in: successfulStatuses }
         }
       },
       {
@@ -31,40 +58,165 @@ exports.getDashboardStats = async (req, res) => {
           as: "course"
         }
       },
-      { $unwind: "$course" },
+      {
+        $unwind: "$course"
+      },
       {
         $group: {
           _id: null,
-          total: { $sum: "$course.fees" }
+          totalRevenue: {
+            $sum: "$course.fees"
+          }
         }
       }
     ]);
 
+    const totalRevenue = revenueResult[0]?.totalRevenue || 0;
+
+    // Popular courses - unique students per course
+    const popularCourses = await Enrollment.aggregate([
+      {
+        $match: {
+          payment_status: { $in: successfulStatuses }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            course_id: "$course_id",
+            user_id: "$user_id"
+          }
+        }
+      },
+      {
+        $group: {
+          _id: "$_id.course_id",
+          totalStudents: { $sum: 1 }
+        }
+      },
+      {
+        $sort: {
+          totalStudents: -1
+        }
+      },
+      {
+        $limit: 5
+      },
+      {
+        $lookup: {
+          from: "coruses",
+          localField: "_id",
+          foreignField: "_id",
+          as: "course"
+        }
+      },
+      {
+        $unwind: "$course"
+      },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "course.categories_id",
+          foreignField: "_id",
+          as: "category"
+        }
+      },
+      {
+        $unwind: {
+          path: "$category",
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $project: {
+          _id: "$course._id",
+          name: "$course.name",
+          category: {
+            $ifNull: ["$category.name", "Uncategorized"]
+          },
+          students: "$totalStudents",
+          rank: {
+            $cond: [
+              { $gte: ["$totalStudents", 10] },
+              "Popular",
+              "Active"
+            ]
+          },
+          rankColor: {
+            $cond: [
+              { $gte: ["$totalStudents", 10] },
+              "primary",
+              "success"
+            ]
+          }
+        }
+      }
+    ]);
+
+    // Recent successful enrollments
+    const recentEnrollments = await Enrollment.find({
+      payment_status: { $in: successfulStatuses }
+    })
+      .sort({ enrollment_Date: -1, _id: -1 })
+      .limit(5)
+      .populate({
+        path: "course_id",
+        select: "name categories_id fees",
+        populate: {
+          path: "categories_id",
+          select: "name"
+        }
+      })
+      .populate("user_id", "name email")
+      .lean();
+
+    const formattedEnrollments = recentEnrollments.map(item => ({
+      _id: item._id,
+      name: item.course_id?.name || "Course not found",
+      category: item.course_id?.categories_id?.name || "Uncategorized",
+      studentName: item.user_id?.name || "Student",
+      studentEmail: item.user_id?.email || "",
+      enrollmentDate: item.enrollment_Date,
+      amount: item.course_id?.fees || 0,
+      status: "Enrolled",
+      paymentStatus: item.payment_status,
+      statusColor: "success"
+    }));
+
     return res.status(200).json({
       success: true,
+      message: "Admin dashboard statistics fetched successfully",
       data: {
         totalActiveUsers,
+        totalStudents,
+        totalTeachers,
         totalCourses,
+        totalActiveCourses,
         totalEnrollments,
-        totalRevenue: totalRevenue[0]?.total || 0
+        totalRevenue,
+        popularCourses,
+        recentEnrollments: formattedEnrollments
       }
     });
+
   } catch (error) {
     console.error("Admin dashboard stats error:", error);
+    console.error("Full error stack:", error.stack);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch dashboard statistics"
+      message: "Failed to fetch dashboard statistics",
+      error: error.message
     });
   }
 };
+
 
 // INSTRUCTOR DASHBOARD - Only logged-in instructor's data
 exports.getInstructorDashboardStats = async (req, res) => {
   try {
     const instructorId = req.user._id;
 
-    // Get only this instructor's active courses
     const courses = await Course.find({
       intrucotor_id: instructorId,
       is_active: true
@@ -90,8 +242,6 @@ exports.getInstructorDashboardStats = async (req, res) => {
       });
     }
 
-    // Get all enrollments for instructor's courses.
-    // Sort oldest first so duplicate enrollments use the first enrollment date.
     const enrollments = await Enrollment.find({
       course_id: { $in: courseIds }
     })
@@ -103,7 +253,6 @@ exports.getInstructorDashboardStats = async (req, res) => {
       courses.map(course => [String(course._id), course])
     );
 
-    // Count each student only once per course
     const uniqueEnrollmentMap = new Map();
 
     enrollments.forEach(enrollment => {
@@ -122,12 +271,10 @@ exports.getInstructorDashboardStats = async (req, res) => {
 
     const uniqueEnrollments = Array.from(uniqueEnrollmentMap.values());
 
-    // Unique students across all instructor courses
     const enrolledStudentIds = new Set(
       uniqueEnrollments.map(item => String(item.user_id))
     );
 
-    // Current and previous month date ranges
     const now = new Date();
 
     const currentMonthStart = new Date(
@@ -151,7 +298,6 @@ exports.getInstructorDashboardStats = async (req, res) => {
     let currentMonthEarning = 0;
     let lastMonthEarning = 0;
 
-    // Group enrollments course-wise
     const courseSalesMap = new Map();
 
     uniqueEnrollments.forEach(enrollment => {
@@ -163,7 +309,6 @@ exports.getInstructorDashboardStats = async (req, res) => {
       const courseFees = Number(course.fees || 0);
       const enrollmentDate = new Date(enrollment.enrollment_Date);
 
-      // Monthly income based on enrollment date
       if (
         enrollmentDate >= currentMonthStart &&
         enrollmentDate < nextMonthStart
@@ -196,12 +341,10 @@ exports.getInstructorDashboardStats = async (req, res) => {
       courseSale.totalAmount = courseSale.totalSelling * courseFees;
     });
 
-    // Only courses with at least one enrollment
     const mostSellingCourses = Array.from(courseSalesMap.values())
       .filter(course => course.totalSelling > 0)
       .sort((a, b) => b.totalSelling - a.totalSelling);
 
-    // Rating and review details
     const reviews = await Review.aggregate([
       {
         $match: {
@@ -222,7 +365,6 @@ exports.getInstructorDashboardStats = async (req, res) => {
       ? Number(reviews[0].averageRating.toFixed(1))
       : null;
 
-    // Percentage comparison with previous month
     let earningPercentage = null;
 
     if (lastMonthEarning > 0) {
@@ -247,6 +389,7 @@ exports.getInstructorDashboardStats = async (req, res) => {
         mostSellingCourses
       }
     });
+
   } catch (error) {
     console.error("Instructor dashboard stats error:", error);
 
@@ -257,6 +400,8 @@ exports.getInstructorDashboardStats = async (req, res) => {
     });
   }
 };
+
+
 
 
 
