@@ -14,9 +14,10 @@ routers.get("/user/:user_id", enrollmentController.getUserEnrollments);
 // INSTRUCTOR - My Students List
 routers.get(
     "/instructor/students",
-    auth(["Instructor", "instructor"]),
+    auth(["admin", "Admin", "Instructor", "instructor"]),
     enrollmentController.getInstructorStudents
 );
+
 
 routers.post("/addenrollment", enrollmentController.addEnroll);
 

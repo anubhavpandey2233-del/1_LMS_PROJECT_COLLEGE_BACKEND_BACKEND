@@ -163,36 +163,46 @@ const getUserEnrollments = async (req, res) => {
 };
 
 // INSTRUCTOR STUDENTS
+
 const getInstructorStudents = async (req, res) => {
     try {
-        const instructorId = req.user?._id;
+        const userRole = req.user?.role;
+        const isAdmin = ["admin", "Admin"].includes(userRole);
 
-        if (!instructorId) {
-            return res.status(401).json({
-                success: false,
-                message: "Instructor authentication required",
-            });
+        let enrollmentFilter = {};
+
+        // Instructor: only students enrolled in their own courses
+        if (!isAdmin) {
+            const instructorId = req.user?._id;
+
+            if (!instructorId) {
+                return res.status(401).json({
+                    success: false,
+                    message: "Instructor authentication required",
+                });
+            }
+
+            const courses = await Course.find({
+                intrucotor_id: instructorId,
+            }).select("_id");
+
+            const courseIds = courses.map(course => course._id);
+
+            if (!courseIds.length) {
+                return res.status(200).json({
+                    success: true,
+                    data: [],
+                    message: "No students enrolled yet",
+                });
+            }
+
+            enrollmentFilter.course_id = { $in: courseIds };
         }
 
-        const courses = await Course.find({
-            intrucotor_id: instructorId,
-        }).select("_id name");
-
-        const courseIds = courses.map(course => course._id);
-
-        if (!courseIds.length) {
-            return res.status(200).json({
-                success: true,
-                data: [],
-                message: "No students enrolled yet",
-            });
-        }
-
-        const enrollments = await Enroll.find({
-            course_id: { $in: courseIds },
-        })
-            .populate("user_id")
-            .populate("course_id", "name")
+        // Admin: all platform enrollments
+        const enrollments = await Enroll.find(enrollmentFilter)
+            .populate("user_id", "name email pfp profile_image avatar role")
+            .populate("course_id", "name fees")
             .sort({
                 enrollment_Date: -1,
                 createdAt: -1,
@@ -201,15 +211,28 @@ const getInstructorStudents = async (req, res) => {
         const studentsMap = new Map();
 
         enrollments.forEach(enrollment => {
-            if (!enrollment.user_id || !enrollment.course_id) {
+            const user = enrollment.user_id;
+            const course = enrollment.course_id;
+
+            if (!user || !course) {
                 return;
             }
 
-            const studentId = enrollment.user_id._id.toString();
+            // Only student accounts
+            if (!["user", "User", "student", "Student"].includes(user.role)) {
+                return;
+            }
+
+            const studentId = user._id.toString();
 
             if (!studentsMap.has(studentId)) {
                 studentsMap.set(studentId, {
-                    student: enrollment.user_id,
+                    _id: user._id,
+                    name: user.name || "Student",
+                    email: user.email || "",
+                    pfp: user.pfp || [],
+                    profile_image: user.profile_image || "",
+                    avatar: user.avatar || "",
                     courses: [],
                     totalProgress: 0,
                     enrollmentCount: 0,
@@ -221,14 +244,12 @@ const getInstructorStudents = async (req, res) => {
 
             studentData.courses.push({
                 enrollmentId: enrollment._id,
-                course: enrollment.course_id,
-                progress: Number(enrollment.progress) || 0,
+                course: course,
+                progress: Number(enrollment.progress?.percentage) || 0,
                 enrolledDate: enrollment.enrollment_Date,
             });
 
-            studentData.totalProgress +=
-                Number(enrollment.progress) || 0;
-
+          studentData.totalProgress += Number(enrollment.progress?.percentage) || 0;
             studentData.enrollmentCount += 1;
 
             if (
@@ -244,27 +265,35 @@ const getInstructorStudents = async (req, res) => {
         });
 
         const students = Array.from(studentsMap.values()).map(item => ({
-            student: item.student,
+            _id: item._id,
+            name: item.name,
+            email: item.email,
+            pfp: item.pfp,
+            profile_image: item.profile_image,
+            avatar: item.avatar,
             courses: item.courses,
             totalCourses: item.enrollmentCount,
-            progress: Math.round(
-                item.totalProgress / item.enrollmentCount
-            ),
+            progress: item.enrollmentCount
+                ? Math.round(item.totalProgress / item.enrollmentCount)
+                : 0,
             enrolledDate: item.enrolledDate,
         }));
 
         return res.status(200).json({
             success: true,
             data: students,
-            message: "Instructor students fetched successfully",
+            message: isAdmin
+                ? "All students fetched successfully"
+                : "Instructor students fetched successfully",
         });
 
     } catch (error) {
-        console.error("Get instructor students error:", error);
+        console.error("Get students error:", error);
 
         return res.status(500).json({
             success: false,
-            message: "Failed to fetch instructor students",
+            message: "Failed to fetch students",
+            error: error.message,
         });
     }
 };

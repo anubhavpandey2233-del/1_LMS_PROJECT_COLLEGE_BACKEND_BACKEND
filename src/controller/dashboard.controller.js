@@ -5,6 +5,7 @@ const Enrollment = require("../model/enrollment.model");
 const Review = require("../model/review.model");
 
 // ADMIN DASHBOARD - All platform statistics
+// ADMIN DASHBOARD - All platform statistics
 exports.getDashboardStats = async (req, res) => {
   try {
     const successfulStatuses = ["success", "paid", "completed"];
@@ -73,8 +74,25 @@ exports.getDashboardStats = async (req, res) => {
 
     const totalRevenue = revenueResult[0]?.totalRevenue || 0;
 
-    // Popular courses - unique students per course
-    const popularCourses = await Enrollment.aggregate([
+    // Actual platform courses
+    // Includes courses created by Admin + Instructor
+    const courses = await Course.find({})
+      .select(
+        "_id name fees duration course_img intrucotor_id categories_id is_active"
+      )
+      .populate({
+        path: "intrucotor_id",
+        select: "name email role pfp"
+      })
+      .populate({
+        path: "categories_id",
+        select: "name"
+      })
+      .sort({ _id: -1 })
+      .lean();
+
+    // Get successful enrollment count for every course
+    const courseEnrollmentStats = await Enrollment.aggregate([
       {
         $match: {
           payment_status: { $in: successfulStatuses }
@@ -91,67 +109,51 @@ exports.getDashboardStats = async (req, res) => {
       {
         $group: {
           _id: "$_id.course_id",
-          totalStudents: { $sum: 1 }
-        }
-      },
-      {
-        $sort: {
-          totalStudents: -1
-        }
-      },
-      {
-        $limit: 5
-      },
-      {
-        $lookup: {
-          from: "coruses",
-          localField: "_id",
-          foreignField: "_id",
-          as: "course"
-        }
-      },
-      {
-        $unwind: "$course"
-      },
-      {
-        $lookup: {
-          from: "categories",
-          localField: "course.categories_id",
-          foreignField: "_id",
-          as: "category"
-        }
-      },
-      {
-        $unwind: {
-          path: "$category",
-          preserveNullAndEmptyArrays: true
-        }
-      },
-      {
-        $project: {
-          _id: "$course._id",
-          name: "$course.name",
-          category: {
-            $ifNull: ["$category.name", "Uncategorized"]
-          },
-          students: "$totalStudents",
-          rank: {
-            $cond: [
-              { $gte: ["$totalStudents", 10] },
-              "Popular",
-              "Active"
-            ]
-          },
-          rankColor: {
-            $cond: [
-              { $gte: ["$totalStudents", 10] },
-              "primary",
-              "success"
-            ]
+          totalStudents: {
+            $sum: 1
           }
         }
       }
     ]);
+
+    const enrollmentMap = new Map(
+      courseEnrollmentStats.map(item => [
+        String(item._id),
+        Number(item.totalStudents || 0)
+      ])
+    );
+
+    const formattedCourses = courses.map(course => {
+      const courseId = String(course._id);
+
+      return {
+        _id: course._id,
+        name: course.name || "Untitled Course",
+        fees: Number(course.fees || 0),
+        duration: course.duration || "N/A",
+        course_img: course.course_img || [],
+        category:
+          course.categories_id?.name || "Uncategorized",
+
+        instructor: course.intrucotor_id
+          ? {
+              _id: course.intrucotor_id._id,
+              name: course.intrucotor_id.name || "Unknown",
+              email: course.intrucotor_id.email || "",
+              role: course.intrucotor_id.role || "",
+              pfp: course.intrucotor_id.pfp || []
+            }
+          : null,
+
+        totalSelling: enrollmentMap.get(courseId) || 0,
+
+        totalAmount:
+          (enrollmentMap.get(courseId) || 0) *
+          Number(course.fees || 0),
+
+        is_active: course.is_active
+      };
+    });
 
     // Recent successful enrollments
     const recentEnrollments = await Enrollment.find({
@@ -173,7 +175,9 @@ exports.getDashboardStats = async (req, res) => {
     const formattedEnrollments = recentEnrollments.map(item => ({
       _id: item._id,
       name: item.course_id?.name || "Course not found",
-      category: item.course_id?.categories_id?.name || "Uncategorized",
+      category:
+        item.course_id?.categories_id?.name ||
+        "Uncategorized",
       studentName: item.user_id?.name || "Student",
       studentEmail: item.user_id?.email || "",
       enrollmentDate: item.enrollment_Date,
@@ -194,7 +198,10 @@ exports.getDashboardStats = async (req, res) => {
         totalActiveCourses,
         totalEnrollments,
         totalRevenue,
-        popularCourses,
+
+        // All actual courses
+        courses: formattedCourses,
+
         recentEnrollments: formattedEnrollments
       }
     });
